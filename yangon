@@ -1,0 +1,542 @@
+#!/usr/bin/env python3
+
+################################################################
+# Yangon                                                       #
+# transport properties from ab-initio DFT results              #
+# Copyright (C) 2019-2020 Vladislav Pokorny; pokornyv@fzu.cz   #
+# homepage: github.com/pokornyv/Yangon                         #
+# method described in J. Chem. Phys. 126, 174101 (2007).       #
+################################################################
+
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+## put $aitranss <path>/yangon to control for SC run with TURBOMOLE
+## the overlap matrix can be printed by TURBOMOLE using $intsdebug sao tag in control file
+
+from iolib import *
+from tmlib import *
+from selib import *
+from densmat import *
+from landauer import *
+
+t0 = time()
+print(hashes+'\nrunning '+str(argv[0])+', '+str(ctime()))
+if chat: 
+	## write info about the machine and environment
+	print('  NumPy version: '+np.__version__) ## compiling own NumPy can boost the efficiency
+	print('  machine epsilon for floats is {0: .5e}'.format(sp.finfo(float).eps))
+	print('  running on '+str(uname().nodename)+', OS '+str(uname().sysname)+'-'+str(uname().machine))
+	try:
+		print('  number of OpenMP threads: '+str(environ['OMP_NUM_THREADS']))
+	except KeyError:
+		print('  $OMP_NUM_THREADS variable is not set, running on single core')
+	#try:
+	#	print('  number of OpenBLAS threads: '+str(environ['OPENBLAS_NUM_THREADS']))
+	#except KeyError:
+	#	print('  $OPENBLAS_NUM_THREADS variable is not set')
+
+
+#####################################################################
+## write flag status to to output ###################################
+if chat:
+	print('\n')
+	if UseSE:	print('"UseSE" flag is on, applying self-energy to boundary regions')
+	if CalcTrans:
+		if UseSE:	
+			print('"CalcTrans" flag is on, we calculate the transmission function')
+		else: 
+			print('Cannot calculate transmission without self-energy, "CalcTrans" flag is switched off')
+			CalcTrans = False
+	if cmos: 
+		print('"complex" flag is on, assuming complex spinor molecular orbitals' )
+		NSpin = 1
+	else:
+		print('"complex" flag is off, assuming real molecular orbitals' )
+
+if tm2trans:
+	print('"tm2trans" flag is on, writing density matrix for sc run with Turbomole DFT code' )
+	if CalcTrans:
+		print('"CalcTrans" is switched off in sc calculation')
+		CalcTrans = False
+	if Pulay: print('"Pulay" flag is on, extrapolating the density matrix from last {0: 3d} iterations.'.format(MaxMix))
+	print('********************\n  Iteration {0: 3d}\n********************'.format(tm2iter))
+	if biasUnit == 'ev':
+		print('bias voltage read in eV units')
+	else:
+		print('bias voltage read in Hartree units')
+	print('bias voltage: {0: .6f} H = {1: .6f} eV'.format(bias,bias*unit_hartree))
+
+#####################################################################
+## read basic data ##################################################
+print('\nReading input files:')
+AtomTypes_L, AtomsNumber_A, BasisSize_A = ReadAtomTypes(TMoutputFile)
+NAtomSpec = len(AtomTypes_L) 					## number of atomic species
+NAtom     = sp.sum(AtomsNumber_A)				## number of atoms in the molecule
+NBF       = sp.sum(AtomsNumber_A*BasisSize_A)	## basis set size, number of mos
+NMat      = NBF*NSpin ## size of matrices
+if cmos: NMat = 2*NBF
+#pm = 0 ## print matrices? (debug only)
+
+if chat:
+	print('\n  atomic species:')
+	for i in range(NAtomSpec):
+		print('    {0:<2}, number: {1: 5d},    basis size: {2: 5d}'\
+		.format(AtomTypes_L[i].capitalize(),AtomsNumber_A[i],BasisSize_A[i])) 
+	print('  number of atomic species : {0: 5d}'.format(NAtomSpec))
+	print('  number of atoms          : {0: 5d}'.format(NAtom))
+	print('  basis size               : {0: 5d}'.format(NBF))
+	print('  number of electrons      : {0: 5d}'.format(NElec))
+
+#####################################################################
+## read geometry data ###############################################
+## atoms_L is like ['fe' 'c' 'c' 'c' 'c' 'c' 'h' 'h'...] atom types
+Coord_A, Atoms_L = ReadCoordTM(TMcoordFile,NAtom)
+## search for segments of the basis that belong to a given atom
+## AtomicSeg_A is like [45 31 31 31 31 31  6  6...] basis size for each atom
+AtomicSeg_A = AtomicSegments(Atoms_L, AtomTypes_L, BasisSize_A, NBF)
+
+#####################################################################
+## read the overlap matrix from ridft output, construct S^1/2 #######
+print('\nReading overlap matrix')
+Smat_A = ReadSmatTM(TMoutputFile,NBF)
+print('\nConstructing the Lowdin S(1/2) matrix')
+S12_A, S12inv_A = LowdinSmatrix(Smat_A)
+
+#####################################################################
+## set up the magnetic field ########################################
+if UseMag:
+	print('\nset up magnetic field:')
+	## if the first element of MagAtoms_A is zero, it means we apply field to all atoms
+	if len(MagAtoms_A)>0 and MagAtoms_A[0] == 0: ## apply magnetic field to all atoms
+		MagAtoms_A = sp.arange(1,NAtom+1)
+		print('  applying magnetic field to all atoms')
+	if len(dh_A)== 1:   ## scalar field in z direction
+		print('\n  magnetic field (g.mu_B)dhz ={0: .5f} H applied to atoms'.format(dh_A[0]))
+		hlocz_A = MagneticVec(AtomicSeg_A,MagAtoms_A-1,dh_A[0],NBF)
+	elif len(dh_A)== 3: ## vector mag. field
+		print('\n  magnetic field (g.mu_B)dh =[{0: .5f},{1: .5f},{2: .5f}] [H] applied to atoms'\
+		.format(dh[0],dh[1],dh[2]))
+		hlocx_A = MagneticVec(AtomicSeg_A,MagAtoms_A-1,dh[0],NBF)
+		hlocy_A = MagneticVec(AtomicSeg_A,MagAtoms_A-1,dh[1],NBF)
+		hlocz_A = MagneticVec(AtomicSeg_A,MagAtoms_A-1,dh[2],NBF)
+	## print the magnetic atoms
+	else:
+		print('\n  Error: inconsistent magnetic field input: '+str(dh_A))
+		exit(1)
+	for i in range(len(MagAtoms_A)):
+		## Atoms_L is numbered from zero
+		print ('  '+str(MagAtoms_A[i])+' ('+str(Atoms_L[MagAtoms_A[i]-1]).capitalize()+')  ',end='')
+		if i%10 == 0 and i>0:
+			print('')
+	print('')
+else:
+	hlocx_A = hlocy_A = hlocz_A = sp.zeros(NBF)
+
+#####################################################################
+## set up the self-energy and coupling vectors GammaL, GammaR #######
+stdout.flush()
+if UseSE:
+	print('\nSetting up self-energy vectors')
+	if ReadSEfromFile:
+		print(' - reading imaginary part of the self-energy from file '+SEfile)
+		SEleft_A, SEright_A = ReadSEfile(SEfile,AtomicSeg_A,NBF)
+		ImSigma1 = sp.amin(sp.imag(SEleft_A))
+	else:
+		print(' - Im Sigma1 = {0: .6f}, Im Sigma2 = {1: .6f}, Im Sigma3 = {2: .6f}'\
+		.format(ImSigma1,ImSigma2,ImSigma3))
+		print(' - Re Sigma1 = {0: .6f}, Re Sigma2 = {1: .6f}, Re Sigma3 = {2: .6f}'\
+		.format(ReSigma*ImSigma1,ReSigma*ImSigma2,ReSigma*ImSigma3))
+		LAtomsSE1_L, LAtomsSE2_L, LAtomsSE3_L = FindAtomsInPlane(LeftA1 ,LeftA2 ,LeftA3 ,Coord_A)	
+		print(LAtomsSE1_L)
+		print(LAtomsSE2_L)
+		#LAtomsSE3_L = []
+		if chat:
+			print(' - {0: 3d} atoms in 1st left  layer'.format(len(LAtomsSE1_L)))
+			print(' - {0: 3d} atoms in 2nd left  layer'.format(len(LAtomsSE2_L)))
+			print(' - {0: 3d} atoms in 3rd left  layer'.format(len(LAtomsSE3_L)))
+		RAtomsSE1_L, RAtomsSE2_L, RAtomsSE3_L = FindAtomsInPlane(RightA1,RightA2,RightA3,Coord_A)
+		print(RAtomsSE1_L)
+		print(RAtomsSE2_L)
+		#RAtomsSE3_L = []
+		if chat:
+			print('\n - {0: 3d} atoms in 1st right layer'.format(len(RAtomsSE1_L)))
+			print(' - {0: 3d} atoms in 2nd right layer'.format(len(RAtomsSE2_L)))
+			print(' - {0: 3d} atoms in 3rd right layer'.format(len(RAtomsSE3_L)))
+		SEleft_A  = SelfEnergyVec(AtomicSeg_A,LAtomsSE1_L,LAtomsSE2_L,LAtomsSE3_L,ImSigma1,ImSigma2,ImSigma3,NBF)
+		SEright_A = SelfEnergyVec(AtomicSeg_A,RAtomsSE1_L,RAtomsSE2_L,LAtomsSE3_L,ImSigma1,ImSigma2,ImSigma3,NBF)
+	## add the real part read from input file
+	SEleft_A, SEright_A = UpdateSelfEnergy(ReSigma,SEleft_A,SEright_A)
+	## construct the coupling vectors
+	GammaL_A = -2.0*sp.imag(SEleft_A )
+	GammaR_A = -2.0*sp.imag(SEright_A)
+	#SaveVector(GammaL_A,'Gamma_left.dat')
+	#SaveVector(GammaR_A,'Gamma_right.dat')
+	#SaveVector(SEleft_A,'SE_left.dat')
+	#SaveVector(SEright_A,'SE_right.dat')
+	SaveVector(SEleft_A+SEright_A,'SE_tot.dat')
+else:
+	print(' - no self-energy is used')
+	SEleft_A = SEright_A = sp.zeros(NMat)
+	GammaL_A = GammaR_A = sp.zeros(NMat)
+
+#####################################################################
+## read molecular orbitals from mos/alpha/beta/spinor.r/spinor.i ####
+stdout.flush()
+#tms = str(tm2iter+1) if tm2trans else ''
+print('\nReading molecular orbitals')
+if cmos: ## complex spinors, spinor.r/spinor.i
+	if chat: print(' - complex orbitals: reading spinor data from spinor.r/spinor.i')
+	[enTM_A,ReMosTM_A] = ReadMosTM(TMspinorR,NMat, sort = 0)
+	[enTM_A,ImMosTM_A] = ReadMosTM(TMspinorI,NMat, sort = 0)
+	mosTM_A = ReMosTM_A + 1.0j*ImMosTM_A
+	#SaveVector(enTM_A,'spec_Hks.dat')
+elif NSpin == 2: ## open-shell, alpha/beta
+	if chat: print(' - real orbitals, open shell: reading data from alpha/beta')
+	[enTMup_A,mosTMup_A] = ReadMosTM(TMalpha,NBF, sort = 0)
+	[enTMdn_A,mosTMdn_A] = ReadMosTM(TMbeta, NBF, sort = 0)
+	enTM_A  = sp.array([enTMup_A,enTMdn_A])
+	mosTM_A = sp.array([mosTMup_A,mosTMdn_A])
+	#SaveVector(enTMup_A,'spec_Hks_up.dat')
+	#SaveVector(enTMdn_A,'spec_Hks_dn.dat')
+else: ## closed shell, mos
+	if chat: print(' - real orbitals, closed shell: reading data from mos')
+	[enTM_A,mosTM_A] = ReadMosTM(TMmosFile,NBF, sort = 0)
+	#SaveVector(enTM_A,'spec_Hks.dat')
+
+#####################################################################
+## orthogonalize mos using Lowdin procedure and test the orthogonality
+stdout.flush()
+print('\nOrthogonalizing molecular orbitals',flush=True)
+t = time()
+if NSpin == 1: ## or cmos
+	mosOrth_A = OrthoMos(mosTM_A,S12_A)
+	## this check takes a lot of time...
+	#CheckOrth(mosOrth_A,mosOrth_A)
+else: ## NSpin = 2
+	mosOrthUp_A = OrthoMos(mosTM_A[0],S12_A)
+	mosOrthDn_A = OrthoMos(mosTM_A[1],S12_A)
+	mosOrth_A = sp.array([mosOrthUp_A,mosOrthDn_A])
+	#CheckOrth(mosOrth_A[0],mosOrth_A[0])
+	#CheckOrth(mosOrth_A[1],mosOrth_A[1])
+if chat: print('done in {0: .3f}s'.format(time()-t))
+
+#####################################################################
+## search for HOMO/LUMO energies and guess the Fermi energy #########
+stdout.flush()
+if cmos:
+	## we must undo the spin-block structure and holes in occupation
+	enTmp_A = enTM_A[sp.argsort(enTM_A)]
+	Ehomo = enTmp_A[NElec-1]
+	Elumo = enTmp_A[NElec]
+elif NSpin == 2:
+	enTmp_A = sp.concatenate([enTM_A[0],enTM_A[1]]) ## join the spectra
+	enTmp_A = enTmp_A[sp.argsort(enTmp_A)]          ## sort the energies
+	Ehomo = enTmp_A[NElec-1]
+	Elumo = enTmp_A[NElec]
+else: ## closed shell, NElec must be even
+	enTmp_A = enTM_A[sp.argsort(enTM_A)]
+	Ehomo = enTmp_A[int(NElec/2)-1]
+	Elumo = enTmp_A[int(NElec/2)]
+
+print('\nHOMO energy: {0: .6f} H, LUMO energy: {1: .6f} H, HL gap: {2: .6f} H'\
+.format(Ehomo,Elumo,Elumo-Ehomo))
+if ef_in_input: ## read EF from trans.in
+	print(' - Fermi energy guess: read from input file')
+	#if EFermi0>Ehomo and EFermi0<Elumo:
+	EFermi = EFermi0
+	#else: ## use the center of the gap
+	#	print(' - Fermi energy guess is outside the HL, gap, using the average.')
+	#	EFermi = (Ehomo+Elumo)/2.0
+else: ## use the center of the gap
+	print(' - Fermi energy guess: center of the HOMO-LUMO gap')
+	EFermi = (Ehomo+Elumo)/2.0
+
+print('Fermi energy guess: {0: .6f} H = {1: .6f} eV'.format(EFermi,EFermi*unit_hartree))
+print('bias voltage:       {0: .6f} H = {1: .6f} eV'.format(bias,bias*unit_hartree))
+print('chemical potentials: muL = {0: .6f} H, muR = {1: .6f} H'.format(EFermi+bias/2.0,EFermi-bias/2.0))
+
+#####################################################################
+## construct the Kohn-Sham Hamiltonian in orthogonal basis ##########
+print('\nConstructing the Kohn-Sham Hamiltonian H0 (Fock matrix)',flush=True)
+t = time()
+if NSpin == 1: ## or cmos
+	Ham_A = Hamiltonian(enTM_A,mosOrth_A,test_eig = True)
+	#print(sp.concatenate([hlocz_A,-hlocz_A])/2.0)
+	if UseMag and cmos:	
+		Ham_A -= sp.diag(sp.concatenate([hlocz_A,-hlocz_A])/2.0)
+else: ## NSpin = 2
+	HamUp_A = Hamiltonian(enTM_A[0],mosOrth_A[0],test_eig = True)
+	HamDn_A = Hamiltonian(enTM_A[1],mosOrth_A[1],test_eig = True)
+	if UseMag:
+		HamUp_A -= sp.diag(hlocz_A/2.0)
+		HamDn_A += sp.diag(hlocz_A/2.0)
+	Zeros_A = sp.zeros([NBF,NBF])
+	Ham_A = sp.block([[HamUp_A,Zeros_A],[Zeros_A,HamDn_A]])
+if chat: 	print('done in {0: .3f}s'.format(time()-t))
+
+#####################################################################
+## read occupation numbers from eiger output in equilibrium
+## construct equilibrium density matrix for comparison
+stdout.flush()
+eigerf = 'EIGS' if cmos else TMeigerFile
+if eigerf in listdir('.'):
+	print('\nReading occupation numbers from '+eigerf)
+	occn_A,NE2 = ReadEigerTM(eigerf,NMat)
+	if NElec != int(sp.around(NE2,6)):
+		print(' - Warning, we are missing some electrons, {0: 3d} -> {1: 5f}'.format(NElec,NE2))
+		if not cmos: print(' - Run eiger with -a flag to print all occupation numbers')
+	print('\nConstructing the equilibrium density matrix from orthogonal mos and occupation numbers:',flush=True)
+	if NSpin == 1:
+		Dmat0_A = DensmatEq(occn_A,mosOrth_A)
+	else:
+		Dmat0up_A = DensmatEq(occn_A[:,0],mosOrth_A[0],Spin='Up')
+		Dmat0dn_A = DensmatEq(occn_A[:,1],mosOrth_A[1],Spin='Dn')
+		Dmat0_A = sp.block([[Dmat0up_A,Zeros_A],[Zeros_A,Dmat0dn_A]])
+	#Lcharges0_A, Lspins0_A = LowdinCharges(Dmat0_A,Atoms_L,AtomicSeg_A,NAtom)
+	#PrintLowdinCharges('lowdin0.dat',Atoms_L,Lcharges0_A,Lspins0_A,Coord_A,tag = 'eq')
+	#SaveMatrix(Dmat0_A,'dmat0.dat')
+	Sx0, Sy0, Sz0 = MagMoment(Dmat0_A,tag='_zero')
+else:
+	print(' - '+eigerf+' is missing, equilibrium density matrix will not be calculated')
+	if not UseSE:
+		print(' - Error: No self-energy is used, we need the eq. density matrix.')
+		print(' - Run eiger -a and restart the calculation.')
+		exit(1)
+
+#####################################################################
+## search for ReSigma and Fermi energy
+stdout.flush()
+if UseSE:
+	t = time()
+	if TuneRSigma:
+		print('\nSearching for the real part of the self-energy:')
+		print('   Fermi energy: {0: .8f} H, bias = {1: .5f} H, init. RSfactor = {2: .8f} H'\
+		.format(EFermi,bias,ReSigma))
+		print('   number of electrons : {0: 5d}'.format(NElec))
+		#PlotSigmaDep(Ham_A,SEleft_A,SEright_A,EFermi,bias,ReSigma)
+		#exit()
+		try:
+			if esol=='bisect': 
+				print('   Using Brent bisection as a solver...')
+				ReSigma = FindRSigmaB(Ham_A,SEleft_A,SEright_A,EFermi,bias,ReSigma)
+			else:              
+				print('   Using Newton method as a solver...')
+				ReSigma = FindRSigmaN(Ham_A,SEleft_A,SEright_A,EFermi,bias,ReSigma)
+		except (RuntimeError, ValueError):
+			print('  bisection failed, falling back to Newton...')
+			ReSigma = FindRSigmaN(Ham_A,SEleft_A,SEright_A,EFermi,bias,ReSigma)
+		## write updated ReSigma to trans.in
+		print(' - Max(ReSigma) = {0: .6f} x {1: .6f} = {2: .6f} H = {3: .6f} eV'\
+		.format(ReSigma,ImSigma1,ReSigma*ImSigma1,ReSigma*ImSigma1*unit_hartree))
+		UpdateInfile('RSFactor','SelfEnergy',ReSigma)
+		SEleft_A, SEright_A = UpdateSelfEnergy(ReSigma,SEleft_A,SEright_A)
+		print('ReSigma search finished after {0: .3f}s'.format(time()-t))
+
+	## this Hamiltonian is no longer hermitean due to Im Sigma
+	print('\nCalculating the eigensystem of the extended Hamiltonian:')
+	ExtHam_A = Ham_A + sp.diag(SEleft_A + SEright_A)
+	## eig returns right eigenvectors as columns
+	Eext_A, BmatR_A = eig(ExtHam_A,left=False,right=True)
+	#SaveVector(Eext_A,'spec_Hext.dat')
+	## sort the eigenvalues for output
+	#EextSorted_A, BmatSorted_A = SortEigvals(Eext_A,BmatR_A,spinblock = False,vec = 'columns')
+	#SaveVector(EextSorted_A,'spec_Hext_sorted.dat')
+
+	t = time()
+	if TuneFermi:
+		print('\nSearching for the Fermi energy:')
+		print('   ReSigma1: {0: .8f} H, bias = {1: .5f} H'.format(ReSigma*ImSigma1,bias))
+		print('   number of electrons : {0: 5d}'.format(NElec))
+		#PlotFermiDep(Eext_A,BmatR_A,GammaL_A,GammaR_A,EFermi,bias,ReSigma)
+		#exit()
+		try:
+			if esol=='bisect': 
+				print('   Using Brent bisection as a solver...')
+				EFermi = FindEFermiB(Eext_A,BmatR_A,GammaL_A,GammaR_A,EFermi,bias,ReSigma)
+			else:
+				print('   Using Newton method as a solver...')
+				EFermi = FindEFermiN(Eext_A,BmatR_A,GammaL_A,GammaR_A,EFermi,bias,ReSigma)
+			EFermi = FindEFermiN(Eext_A,BmatR_A,GammaL_A,GammaR_A,EFermi,bias,ReSigma)
+		except (RuntimeError, ValueError):
+			print('  EFermi search failed, using old value.')
+			#EFermi = FindEFermiN(Eext_A,BmatR_A,GammaL_A,GammaR_A,EFermi,bias,ReSigma)
+		## write updated EFermi to trans.in
+		print(' - EFermi = {0: .6f} H = {1: .6f} eV'.format(EFermi,EFermi*unit_hartree))
+		UpdateInfile('EFermi','Params',EFermi)
+		print('EFermi search finished after {0: .3f}s'.format(time()-t))
+
+else: ## no self-energy
+	print('\nNo self-energy is used, calculating the equilibrium density matrix:')
+	ExtHam_A = sp.copy(Ham_A)
+	if NSpin == 1:
+		Dmat_A = DensmatEq(occn_A,mosOrth_A)
+	else:
+		Dmat0up_A = DensmatEq(occn_A[:,0],mosOrth_A[0],Spin='Up')
+		Dmat0dn_A = DensmatEq(occn_A[:,1],mosOrth_A[1],Spin='Dn')
+		Dmat0_A = sp.block([[Dmat0up_A,Zeros_A],[Zeros_A,Dmat0dn_A]])
+
+stdout.flush()
+print('\n'+'*'*50+'\nFermi energy: {0: .6f} H = {1: .6f} eV'.format(EFermi,EFermi*unit_hartree))
+if UseSE: print('Max(ReSigma): {0: .6f} H = {1: .6f} eV'\
+.format(ReSigma*ImSigma1,ReSigma*ImSigma1*unit_hartree))
+print('*'*50)
+
+stdout.flush()
+print('\nCalculating the final density matrix:')
+if UseSE:	Dmat_A, TrD = Densmat(EFermi,bias,Eext_A,BmatR_A,GammaL_A,GammaR_A)
+else:     Dmat_A, TrD = Dmat0_A, sp.trace(Dmat0_A)
+Sx, Sy, Sz = MagMoment(Dmat_A,tag='_DM')
+
+#####################################################################
+## Lowdin population analysis to check for excess charge
+if PrintLowdin:
+	Lcharges_A, Lspins_A = LowdinCharges(Dmat_A,Atoms_L,AtomicSeg_A,NAtom)
+	PrintLowdinCharges('lowdin.dat',Atoms_L,Lcharges_A,Lspins_A,Coord_A,tag = '')
+
+#####################################################################
+## print the transmission function
+if CalcTrans:
+	GammaL2_A, GammaR2_A = TransformGamma(GammaL_A,GammaR_A,BmatR_A)
+	t = time()
+	print('\nCalculating transmission function...')
+#	Trans_A, En_A = runTransPara(Emin,Emax,Estep,Eext_A,GammaL2_A,GammaR2_A,EFermi,ReSigma*ImSigma1)
+	Trans_A, En_A = runTrans(Emin,Emax,Estep,Eext_A,GammaL2_A,GammaR2_A,EFermi,ReSigma*ImSigma1)
+	WriteTransmission(En_A,Trans_A,EFermi,bias,ReSigma*ImSigma1,ImSigma1)
+	tt = time()-t
+	print(' done in {0: 3d}m{1: .3f}s'.format(int(tt/60.0),tt-60*int(tt/60.0)))
+
+#####################################################################
+## read the density matrix from TURBOMOLE (SO only) for comparison
+stdout.flush()
+if cmos:
+	print('\nReading density matrix from Turbomole re(aa,ab,bb), im(aa,ab,bb) files')
+	FilesTM = 1
+	for fname in ['reaa', 'reab', 'rebb', 'imaa', 'imab', 'imbb']:
+		if fname not in listdir('.'):
+			print(' - Warning: input file '+str(fname)+' missing.')
+			print(' - Turbomole density matrix will not be read')
+			FilesTM = 0
+			break
+	if FilesTM:
+		DMTM_A = ReadDMcomplexTM(NBF)
+		#print('DM_Turbo')
+		#if pm: PrintMatrix(DMTM_A)
+		DMTMOrth_A = sp.dot(S12_A,sp.dot(DMTM_A,S12_A))
+		#print('DM_Turbo_orth')
+		#if pm: PrintMatrix(DMTMOrth_A)
+		print(' - Tr(D) = {0: .6f}'.format(sp.real(sp.trace(DMTMOrth_A))))
+		## caculating the spin expectation value from Trubomole:
+		SxT, SyT, SzT = MagMoment(DMTMOrth_A,tag='_TM')	
+		#SaveVector(sp.diag(DMTMOrth_A-Dmat_A),'dm_diag_diffTM.dat')
+		#print('\nLowdin population analysis from Turbomole::')
+		#LchargesTM_A, LspinsTM_A = LowdinCharges(DMTMOrth_A,Atoms_L,AtomicSeg_A,NAtom)
+		#PrintLowdinCharges('lowdinTM.dat',Atoms_L,LchargesTM_A,LspinsTM_A,Coord_A,tag = 'TM')
+		#SaveMatrix(DMTMOrth_A,'dmatTmorth.dat')
+
+stdout.flush()
+if tm2trans:
+	print('\nSaving density matrix to ait2tm file for Turbomole')
+	## rotating the density matrix to the non-orthogonal basis of Turbomole
+	if NSpin == 2: ## we have to extend the S12 matrices to double 
+		S12inv_A = sp.block([[S12inv_A,Zeros_A],[Zeros_A,S12inv_A]])
+		S12_A = sp.block([[S12_A,Zeros_A],[Zeros_A,S12_A]])
+	DmatTM_A = sp.dot(S12inv_A,sp.dot(Dmat_A,S12inv_A))
+	OldMat = False
+	if 'ait2tm' in listdir('.'):
+		try:
+			DmatTMold_A = LoadDensmat_tm2ait(NBF,'ait2tm')
+			OldMat = True
+		except ValueError: ## ait2tm is an empty file because previous run of transport.py failed
+			print(' ... file ait2tm seems corrupted or empty')
+			OldMat = False
+	## perform a Pulay extrapolation of the density matrix (in non-orthogonal basis)
+	if Pulay: ## run Pulay if we have enough matrices, otherwise just store new matrix
+		if 'ait2tm.'+str(MaxMix) in listdir('.'): ## we have enough matrices, run Pulay mixer
+			print(' - performing the Pulay extrapolation, MaxMix = {0: 3d}'.format(MaxMix))
+			DMats_L = [DmatTM_A]  ## write the new density matrix to the list
+			for mat in range(1,MaxMix+1):
+				if 'ait2tm.'+str(mat) in listdir('.'):
+					print(' - Reading file ait2tm.'+str(mat))
+					## append the list by old matrices
+					DMats_L.append(LoadDensmat_tm2ait(NBF,'ait2tm.'+str(mat)))
+				else:
+					print(' - File ait2tm.'+str(mat)+' is missing.')
+					exit(1)
+			if FixMix: ## run mixer with fixed weights
+				print(' - using fixed mixing weights [0.4 0.3 0.2 0.1]')
+				DmatPulay_A = 0.4*DMats_L[0]+0.3*DMats_L[1]+0.2*DMats_L[2]+0.1*DMats_L[3]
+				D1_A = sp.dot(S12_A,sp.dot(DmatPulay_A,S12_A)) ## rotate to orthogonal basis
+				print(' - Tr(Dmix) = {0: .6f}'.format(sp.real(sp.trace(D1_A))))
+			else: ## extrapolate density matrix using Pulay
+				DmatPulay_A, PulayCoeffs_A = PulayMixer(DMats_L,NMat)
+				D1_A = sp.dot(S12_A,sp.dot(DmatPulay_A,S12_A)) ## rotate to orthogonal basis
+				print(' - Tr(Dmix) = {0: .6f}'.format(sp.real(sp.trace(D1_A))))
+				## print Pulay weights for control
+				print('{0: 5d}\t'.format(tm2iter+1),end='')
+				for i in range(MaxMix): print('{0: .6f} '.format(sp.real(PulayCoeffs_A[i])),end='')
+				print('\t:OUT_PULAY')
+		else: ## initial iterations, tm2ait.MaxMix is not present
+			print(' - tm2ait.'+str(MaxMix)+' file not present, not enough data for Pulay yet.')
+			DmatPulay_A = DmatTM_A
+		
+		## rename old matrices and store the new one
+		for mat in range(MaxMix-1,0,-1):
+			if 'ait2tm.'+str(mat) in listdir('.'):
+				print(' - relabelling ait2tm.'+str(mat)+' to ait2tm.'+str(mat+1))
+				rename('ait2tm.'+str(mat),'ait2tm.'+str(mat+1))
+		if 'ait2tm' in listdir('.'):
+			print(' - relabelling ait2tm   to ait2tm.1')
+			rename('ait2tm','ait2tm.1')
+		DDiff = DensmatDiff(DmatPulay_A,DmatTMold_A) if OldMat else 0.0
+		SaveDensmat_tm2ait(DmatPulay_A,'ait2tm')
+		
+	else: ## simple linear mixing, unstable
+		if  'ait2tm' in listdir('.'):
+			try:
+				DmatTMold_A = LoadDensmat_tm2ait(NBF,'ait2tm')
+				if dmix > 0.0:
+					## mixing old and new density matrices
+					print(' - mixing old and new density matrices, dmix = {0: .6f}'.format(dmix))
+					DmatTM_A = (1.0-dmix)*DmatTM_A + dmix*DmatTMold_A
+					DDiff = DensmatDiff(DmatTM_A,DmatTMold_A)
+			except ValueError:
+				print(' ... file ait2tm seems corrupted or empty')
+				DDiff = 0.0
+			print(' - density matrix difference: Re DDiff = {0: .8e}, Im DDiff = {1: .8e}'\
+			.format(sp.real(DDiff),sp.imag(DDiff)))
+		else:
+			print(' ait2tm file is missing')
+		SaveDensmat_tm2ait(DmatTM_A,'ait2tm')
+	UpdateInfile('iter','tm2ait',tm2iter+1,'int')
+
+stdout.flush()
+if tm2trans:
+	print('  iter\tEFermi\t\tReSigma1\t\tEhomo\t\tElumo\t\tDDiff\t\tTrD')
+	print('{0: 5d}\t{1: .8f}\t{2: .8f}\t{3: .8f}\t{4: .8f}\t{5: .8e}\t{6: .8f}\t:OUT_TRANS'\
+	.format(tm2iter+1,EFermi,ReSigma*ImSigma1,Ehomo,Elumo,sp.real(DDiff),sp.real(TrD)))
+
+if UseMag:
+	#print('{0: .5f}\t{1: .5f}\t{2: .8f}\t{3: .8f}\t{4: .8f}\t{5: .8f} :OUT_MAG_SPIN'\
+	#.format(dh_A[0],bias,Sx,Sy,Sz,Lspins_A[23]))
+	print('{0: .5f}\t{1: .5f}\t{2: .8f}\t{3: .8f}\t{4: .8f} :OUT_MAG_SPIN'\
+	.format(dh_A[0],bias,Sx,Sy,Sz))
+	print('{0: .5f}\t{1: .5f}\t{2: .8f}\t{3: .8f} :OUT_MAG_FERMI'\
+	.format(dh_A[0],bias,EFermi,ReSigma))
+
+rt = time()-t0
+print('\nAll done, calculation finished after {0: 3d}m{1: .3f}s'\
+.format(int(rt/60.0),rt-60*int(rt/60.0)))
+
+## yangon END
+

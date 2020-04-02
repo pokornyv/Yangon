@@ -1,0 +1,53 @@
+[Params]
+;EFermi          : 
+complex          : 0
+spin_channels    : 1
+NElectron        : 
+TuneRSigma       : 1
+TuneFermi        : 1
+PrintLowdin      : 1
+bias             : 0.0
+biasUnit         : H
+Pulay            : 1
+FixMix           : 0
+MaxMix           : 5
+dmix             : 0.1
+solver           : Newton
+;solver           : bisect
+
+[TurboInput]
+TMoutputFile     : proper.out
+TMcoordFile      : coord
+TMmosFile        : mos
+TMalpha          : alpha
+TMbeta           : beta
+TMspinorR        : spinor.r
+TMspinorI        : spinor.i
+SEfile           : selfenergy.in
+
+[SelfEnergy]
+;RSFactor        : 
+UseSE           : 1
+ReadSEfromFile  : 0
+LeftAtoms       : 
+RightAtoms      : 
+NLayers         : 2 
+ImSigma1        : 0.1
+ImSigma2        : 0.05
+ImSigma3        : 0.025
+
+[Trans]
+CalcTrans       :  1
+Emin            : -0.5
+Emax            :  0.5
+Estep           :  0.001
+
+[tm2ait]
+tm2trans        : 0
+iter            : 0
+
+[Mag]
+UseMag          : 0
+dh              : 0
+mag_atoms       : 
+
