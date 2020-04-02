@@ -6,6 +6,17 @@
 # method described in J. Chem. Phys. 126, 174101 (2007).       #
 ################################################################
 
+## list of functions
+# AtomicSegments
+# LowdinSmatrix
+# OrthoMos
+# CheckOrth
+# SortEigvals
+# Hamiltonian
+# GreenFunctionZero
+# NormalizeMos
+
+
 from config import *
 from iolib import *
 

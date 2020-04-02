@@ -6,6 +6,27 @@
 # method described in J. Chem. Phys. 126, 174101 (2007).       #
 ################################################################
 
+## list of functions
+# DensmatEq
+# FpqMatrices
+# Densmat
+# ChargeDensmat
+# SpinDensmat
+# MagMoment
+# Nelectron
+# LowdinCharges
+# PlotSigmaDep
+# PlotFermiDep
+# FindRSigma
+# FindEFermi
+# FindRSigmaB
+# FindEFermiB
+# FindRSigmaN
+# FindEFermiN
+# DensmatDiff
+# PulayMixer
+
+
 from config import *
 from selib import TransformGammaSOCdm,SaveDensmat_tm2ait,UpdateSelfEnergy
 from scipy.linalg.lapack import zgeev

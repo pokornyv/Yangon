@@ -6,6 +6,16 @@
 # method described in J. Chem. Phys. 126, 174101 (2007).       #
 ################################################################
 
+## list of functions
+# FindAtomsInPlane
+# SelfEnergyVec
+# ReadSEfile
+# UpdateSelfEnergy
+# MagneticVec
+# TransformGamma
+# TransformGammaSOCdm
+
+
 from config import *
 from iolib import SaveDensmat_tm2ait
 #from scipy.linalg.blas import cgemm,zgemm

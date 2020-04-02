@@ -6,6 +6,15 @@
 # method described in J. Chem. Phys. 126, 174101 (2007).       #
 ################################################################
 
+## list of functions
+# runTrans
+# runTransPara
+# Transmission
+# TransmissionSOC
+# TransmissionNodiag
+# TransmissionSOCnodiag
+
+
 from config import *
 from tmlib import GreenFunctionZero
 

@@ -6,6 +6,26 @@
 # method described in J. Chem. Phys. 126, 174101 (2007).       #
 ################################################################
 
+## list of functions
+# MakeMatrix
+# ReadAtomTypes
+# ReadCoordTM
+# ReadSmatTM
+# ReadMosTM
+# ReadFileTM
+# ReadDMcomplexTM
+# ReadEigerTM
+# WriteEiger
+# PrintMatrix
+# SaveVector
+# SaveMatrix
+# PrintLowdinCharges
+# SaveDensmat_tm2ait
+# LoadDensmat_tm2ait
+# WriteTransmission
+# UpdateInfile
+
+
 from config import *
 
 def MakeMatrix(sin_A):

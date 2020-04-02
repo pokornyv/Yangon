@@ -1,5 +1,4 @@
 # Yangon
-=====
 #### Description:
 
 Yangon is a code for calculating transport properties of molecular junctions. It is interfaced
