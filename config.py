@@ -44,20 +44,24 @@ config = SafeConfigParser()
 config.read(cfile)
 
 ## default values
+## NElectron has no default
+## LeftAtoms has no default
+## RightAtoms has no default
+## [params]
 ef_in_input    = False
 cmos           = False
 NSpin          = 1
-## NElectron has no default
 TuneRSigma     = True
 TuneFermi      = True
 PrintLowdin    = True
-Pulay          = True
-FixMix         = False
-MaxMix         = 5              ## number of matrices to store for Pulay
-dmix           = 0.0
 bias           = 0.0
 biasUnit       = 'H'
+Pulay          = True
+FixMix         = False
+MaxMix         = 5               ## number of matrices to store for Pulay
+dmix           = 0.01
 esol           = 'newton'
+## [TurboInput]
 TMoutputFile   = 'ridft.out'
 TMcoordFile    = 'coord'
 TMeigerFile    = 'eiger.out'
@@ -66,21 +70,24 @@ TMalpha        = 'alpha'
 TMbeta         = 'beta'
 TMspinorR      = 'spinor.r'
 TMspinorI      = 'spinor.i'
-SEfile         = 'selfenergy.in'
-##LeftAtoms RightAtoms have no defaults
+## [SelfEnergy]
+ReSigma        =  0.0
 UseSE          =  True
 ReadSEfromFile =  False
+SEfile         = 'selfenergy.in'
 NLayers        =  1
-ReSigma        =  0.0
 ImSigma1       =  0.100
 ImSigma2       =  0.050
 ImSigma3       =  0.025
+## [Trans]
 CalcTrans      =  True
 Emin           = -0.5
 Emax           =  0.5
 Estep          =  0.01
+## [tm2ait]
 tm2trans       =  False
 tm2iter        =  0
+## [Mag]
 UseMag         =  False
 dh_A           =  sp.empty(0)
 mag_atoms_A    =  sp.empty(0)
@@ -136,8 +143,6 @@ if config.has_option('TurboInput','TMspinorR'):
 	TMspinorR = config.get('TurboInput','TMspinorR')
 if config.has_option('TurboInput','TMspinorI'):
 	TMspinorI = config.get('TurboInput','TMspinorI')
-if config.has_option('TurboInput','SEfile'):
-	SEfile = config.get('TurboInput','SEfile')
 
 ## SelfEnergy block
 if config.has_option('SelfEnergy','UseSE'):
@@ -147,6 +152,8 @@ if UseSE:
 		ReSigma = float(config.get('SelfEnergy','RSFactor'))
 	if config.has_option('SelfEnergy','ReadSEfromFile'):
 		ReadSEfromFile = bool(int(config.get('SelfEnergy','ReadSEfromFile')))
+		if config.has_option('SelfEnergy','SEfile'):
+			SEfile = config.get('SelfEnergy','SEfile')
 	if not ReadSEfromFile: ## building self-energy layer by layer
 		if config.has_option('SelfEnergy','LeftAtoms'):
 			[LeftA1, LeftA2, LeftA3 ] = \
@@ -164,9 +171,9 @@ if UseSE:
 			NLayers = int(config.get('SelfEnergy','NLayers'))
 		if config.has_option('SelfEnergy','ImSigma1'):
 			ImSigma1 = float(config.get('SelfEnergy','ImSigma1'))
-		if config.has_option('SelfEnergy','ImSigma1'):
+		if config.has_option('SelfEnergy','ImSigma2'):
 			ImSigma2 = float(config.get('SelfEnergy','ImSigma2'))
-		if config.has_option('SelfEnergy','ImSigma1'):
+		if config.has_option('SelfEnergy','ImSigma3'):
 			ImSigma3 = float(config.get('SelfEnergy','ImSigma3'))
 
 ## Trans block
@@ -179,7 +186,7 @@ if config.has_option('Trans','Emax'):
 if config.has_option('Trans','Estep'):
 	Estep = float(config.get('Trans','Estep'))
 
-## Tmait block
+## tm2ait block
 if config.has_option('tm2ait','tm2trans'):
 	tm2trans = bool(int(config.get('tm2ait','tm2trans')))
 if config.has_option('tm2ait','iter'):
@@ -197,9 +204,13 @@ if config.has_option('Mag','mag_atoms'):
 
 ###########################################################
 ## global variables #######################################
+unit_bohr    = 1.889725989 ## Bohr radius in Angstroms
+unit_hartree = 27.211399   ## Hartree in eV
+
 if cmos: blocks_T = ['uu','ud','du','dd']
 
-if biasUnit == 'ev': bias /= 27.211399
+## convert eV to H
+if biasUnit == 'ev': bias /= unit_hartree
 
 ## print info to standard output?
 chat = True
@@ -221,9 +232,6 @@ elements_L = [
 'Hf','Ta','W','Re','Os','Ir','Pt','Au','Hg','Tl','Pb','Bi','Po','At','Rn','Fr','Ra',\
 'Ac','Th','Pa','U','Np','Pu','Am','Cm','Bk','Cf','Es','Fm','Md','No','Lr',\
 'Rf','Db','Sg','Bh','Hs','Mt','Ds','Rg','Cn','Nh','Fl','Mc','Lv','Ts','Og']
-
-unit_bohr    = 1.889725989 ## Bohr radius in Angstroms
-unit_hartree = 27.211399   ## Hartree in eV
 
 ## config.py END
 

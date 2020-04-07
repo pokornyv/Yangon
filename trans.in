@@ -18,17 +18,18 @@ solver           : Newton
 [TurboInput]
 TMoutputFile     : proper.out
 TMcoordFile      : coord
+TMeigerFile      : eiger.out
 TMmosFile        : mos
 TMalpha          : alpha
 TMbeta           : beta
 TMspinorR        : spinor.r
 TMspinorI        : spinor.i
-SEfile           : selfenergy.in
 
 [SelfEnergy]
 ;RSFactor        : 
 UseSE           : 1
 ReadSEfromFile  : 0
+SEfile          : selfenergy.in
 LeftAtoms       : 
 RightAtoms      : 
 NLayers         : 2 

@@ -136,7 +136,7 @@ if UseMag:
 		exit(1)
 	for i in range(len(MagAtoms_A)):
 		## Atoms_L is numbered from zero
-		print ('  '+str(MagAtoms_A[i])+' ('+str(Atoms_L[MagAtoms_A[i]-1]).capitalize()+')  ',end='')
+		print ('  {0: 3d}'.format(MagAtoms_A[i])+' ('+str(Atoms_L[MagAtoms_A[i]-1]).capitalize()+')  ',end='')
 		if i%10 == 0 and i>0:
 			print('')
 	print('')
@@ -324,6 +324,7 @@ if UseSE:
 		print('   Fermi energy: {0: .8f} H, bias = {1: .5f} H, init. RSfactor = {2: .8f} H'\
 		.format(EFermi,bias,ReSigma))
 		print('   number of electrons : {0: 5d}'.format(NElec))
+		stdout.flush()
 		#PlotSigmaDep(Ham_A,SEleft_A,SEright_A,EFermi,bias,ReSigma)
 		#exit()
 		try:

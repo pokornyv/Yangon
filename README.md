@@ -2,7 +2,8 @@
 #### Description:
 
 Yangon is a code for calculating transport properties of molecular junctions. It is interfaced
-with TURBOMOLE DFT package. The implemented method is described in [1].
+with TURBOMOLE DFT package. It implements the method is described in [1], generalized to
+systems with spin-orbit interactions.
 
 Yangon is in very early stage of development and not yet ready for obtaining reliable results. Use on your own risk.
 
@@ -12,7 +13,7 @@ Yangon is a free software distributed under the GPL license.
 [github.com/pokornyv/Yangon](https://github.com/pokornyv/Yangon)
 
 #### List of files:
-- *yangon.py* - main code  
+- *yangon* - main code  
 - *config.py* - reads the configutaion file *trans.in*, sets up the parameters  
 - *iolib.py* - I/O functions  
 - *tmlib.py* - functions for processing TURBOMOLE input  

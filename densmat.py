@@ -350,7 +350,7 @@ def FindEFermiB(Eext_A,BmatR_A,GammaL_A,GammaR_A,EF,bias,ReSigma):
 def FindRSigmaN(Ham_A,SEleft_A,SEright_A,EFermi,bias,ReS):
 	''' search for ReSigma to tune TrD to number of electrons '''
 	eqn = lambda x: Nelectron(x,Ham_A,SEleft_A,SEright_A,EFermi,bias)-NElec
-	if sp.fabs(eqn(ReS))>1e-4:
+	if sp.fabs(sp.real(eqn(ReS)))>1e-4:
 		ReS = newton(eqn,ReS,fprime=None,tol=1e-4,maxiter=50)
 	return ReS
 
@@ -358,7 +358,7 @@ def FindRSigmaN(Ham_A,SEleft_A,SEright_A,EFermi,bias,ReS):
 def FindEFermiN(Eext_A,BmatR_A,GammaL_A,GammaR_A,EF,bias,ReSigma):
 	''' search for EFermi to tune TrD to number of electrons, uses brentq() '''
 	eqn = lambda x: Densmat(EF,bias,Eext_A,BmatR_A,GammaL_A,GammaR_A,FullMat=False)-NElec
-	if sp.fabs(eqn(EF))>1e-5:
+	if sp.fabs(sp.real(eqn(EF)))>1e-5:
 		EF = newton(eqn,EF,fprime=None,tol=1e-5,maxiter=50)
 	return EF
 

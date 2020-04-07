@@ -27,12 +27,12 @@ Yes/no values are coded as 0/1, value in brackets is the default.
 - *TMbeta*           (beta) - molecular orbital file read if complex of off and *spin_channels* = 2
 - *TMspinorR*        (spinor.r) - molecular orbital file read if *complex* is on
 - *TMspinorI*        (spinor.i) - molecular orbital file read if *complex* is on
-- *SEfile*          (selfenergy.in) - file with imaginary part of self-energy for given atoms, used if *ReadSEfromFile* is on.
 
 ### SelfEnergy
 - *RSFactor*        (no default) - Prefactor of the real part of the self-energy. Written by yangon during calculation. ReSigma=RSFactor*ImSigma.
 - *UseSE*           (1) - Apply self-energy to boundary regions?
 - *ReadSEfromFile*  (0) - Read self-energy from file *SEfile*?
+- *SEfile*          (selfenergy.in) - file with imaginary part of self-energy for given atoms, used if *ReadSEfromFile* is on.
 - *LeftAtoms*       (no default) - Three atoms to define left boundary plane. Ignored if *ReadSEfromFile* is on.
 - *RightAtoms*      (no default) - Three atoms to define right boundary plane. Ignored if *ReadSEfromFile* is on.
 - *NLayers*         (2) - Number of players with self-energy. Ignored if *ReadSEfromFile* is on.

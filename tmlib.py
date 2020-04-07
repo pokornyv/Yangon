@@ -14,7 +14,6 @@
 # SortEigvals
 # Hamiltonian
 # GreenFunctionZero
-# NormalizeMos
 
 
 from config import *

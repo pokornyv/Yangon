@@ -11,8 +11,6 @@
 # runTransPara
 # Transmission
 # TransmissionSOC
-# TransmissionNodiag
-# TransmissionSOCnodiag
 
 
 from config import *

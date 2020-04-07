@@ -85,7 +85,7 @@ def SelfEnergyVec(AtomicSeg_A,AtomsSE1_L,AtomsSE2_L,AtomsSE3_L,ImSE1,ImSE2,ImSE3
 
 
 def ReadSEfile(fname,AtomicSeg_A,NBF):
-	''' read self-energy from file 
+	''' read self-energy from file
 	second columns is the lead, 0 = left, 1 = right 
 	real part is not written to nor read from this file,
 	read RSFactor tag from trans.in to construct the real part '''
@@ -185,7 +185,7 @@ def TransformGamma(GammaL_A,GammaR_A,Bmat_A):
 def TransformGammaSOCdm(GammaL_A,GammaR_A,Bmat_A):
 	''' transforms coupling vectors Gamma to basis of eigenvectors of H(ext) 
 	their sum is used for calculation of the complex density matrix
-	Gamma matrices for complex transmission calcualtion are different! '''
+	Gamma matrices for complex transmission calculation are different! '''
 	t = time()
 	NBF = int(len(GammaL_A)/2)
 	Binv_A = inv(Bmat_A)
